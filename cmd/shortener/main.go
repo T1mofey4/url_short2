@@ -32,7 +32,7 @@ func main() {
 	}
 
 	pg_dsn := os.Getenv("PG_DSN")
-	if host == "" {
+	if pg_dsn == "" {
 		log.Error("not found pg_dsn in env")
 	}
 
@@ -51,6 +51,7 @@ func main() {
 			http.Error(w, "database unavialible", http.StatusServiceUnavailable)
 			return
 		}
+
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("server healtz OK!"))
 	})
