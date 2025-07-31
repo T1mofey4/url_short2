@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -11,9 +10,15 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/joho/godotenv"
+
+	"url_shortener/internal/logger"
+	"url_shortener/internal/storage"
 )
 
 func main() {
+	ctx := context.Background()
+
+	log := logger.New()
 	_ = godotenv.Load()
 
 	port := os.Getenv("HTTP_PORT")
@@ -26,9 +31,29 @@ func main() {
 		host = "127.0.0.1"
 	}
 
+	pg_dsn := os.Getenv("PG_DSN")
+	if pg_dsn == "" {
+		log.Error("not found pg_dsn in env")
+	}
+
+	// database initialization
+	db, err := storage.NewDB(ctx, pg_dsn)
+	if err != nil {
+		log.Error("failed to connect ot database", "err", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
 	r := chi.NewRouter()
 	r.Get("/healtz", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("server healtz OK!"))
+		err = db.Ping(ctx)
+		if err != nil {
+			http.Error(w, "database unavialible", http.StatusServiceUnavailable)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("server healtz OK!"))
 	})
 
 	addr := host + ":" + port
@@ -40,10 +65,10 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("http server started on %s", addr)
+		log.Info("http server started", "addr", srv.Addr)
 		err := srv.ListenAndServe()
 		if err != nil && err != http.ErrServerClosed {
-			log.Fatalf("listen error: %v", err)
+			log.Error("http server error", "err", err)
 		}
 	}()
 
@@ -52,16 +77,16 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Println("shutting down server...")
+	log.Info("shutting down server...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	err := srv.Shutdown(ctx)
+	err = srv.Shutdown(ctx)
 	if err != nil {
-		log.Fatalf("server forced to shutdown: %v", err)
+		log.Error("graceful shutdown error", "error", err)
 	}
 
-	log.Println("server exited")
+	log.Info("server exited")
 
 }
