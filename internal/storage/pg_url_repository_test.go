@@ -3,10 +3,13 @@ package storage
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v4/pgxpool"
+	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
@@ -15,27 +18,6 @@ import (
 
 func TestURLRepository(t *testing.T) {
 	ctx := context.Background()
-
-	// // to start container PG
-	// req := testcontainers.ContainerRequest{
-	// 	Image:        "postgres:14-alpine3.17",
-	// 	ExposedPorts: []string{"5432/tcp"},
-	// 	Env: map[string]string{
-	// 		"PG_USER":     "testuser",
-	// 		"PG_PASSWORD": "testpass",
-	// 		"PG_DB":       "testdb",
-	// 	},
-	// 	WaitingFor: wait.ForListeningPort("5432/tcp"),
-	// },
-
-	// container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-	// 	ContainerRequest: req,
-	// 	Started:          true,
-	// })
-	// if err != nil {
-	// 	t.Fatalf("failed to start container: %v", err)
-	// }
-	// defer container.Terminate(ctx)
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
@@ -65,6 +47,12 @@ func TestURLRepository(t *testing.T) {
 	// Составить DSN для подключения к БД
 	dsn := fmt.Sprintf("postgres://testuser:password@%s:%s/testdb?sslmode=disable", host, port.Port())
 
+	// Миграции для БД
+	cmd := exec.Command("../../bin/goose", "-dir", "../../migrations", "postgres", dsn, "up")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	require.NoError(t, cmd.Run())
+
 	// Создать пул подключений к БД
 	pool, err := pgxpool.Connect(ctx, dsn)
 	if err != nil {
@@ -75,20 +63,26 @@ func TestURLRepository(t *testing.T) {
 	// Создать репозиторий
 	repo := NewURLRepository(pool)
 
-	// Создать URL
-	url := app.URL{
-		Slug:      "test-slug",
-		LongURL:   "https://example.com",
-		TTL:       time.Now().Add(24 * time.Hour),
-		CreatedAt: time.Now(),
-	}
+	t.Run("Save/Get round-trip", func(t *testing.T) {
+		example := app.URL{
+			Slug:      "abc123",
+			LongURL:   "https;//examle.com",
+			TTL:       time.Now().Add(24 * time.Hour),
+			CreatedAt: time.Now(),
+		}
 
-	// Сохранить URL
-	slug, err := repo.Save(ctx, url)
-	if err != nil {
-		t.Fatalf("failed to save URL: %v", err)
-	}
-	if slug != url.Slug {
-		t.Errorf("expected slug %q, got %q", url.Slug, slug)
-	}
+		_, err := repo.Save(ctx, example)
+		require.NoError(t, err)
+
+		got, err := repo.GetBySlug(ctx, example.Slug)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		require.Equal(t, example.LongURL, got.LongURL)
+	})
+
+	t.Run("DeleteExpired", func(t *testing.T) {
+		count, err := repo.DeleteExpired(ctx)
+		require.NoError(t, err)
+		require.Equal(t, int64(0), count)
+	})
 }
