@@ -71,7 +71,7 @@ func TestURLRepository(t *testing.T) {
 			CreatedAt: time.Now(),
 		}
 
-		_, err := repo.Save(ctx, example)
+		err := repo.Save(ctx, example)
 		require.NoError(t, err)
 
 		got, err := repo.GetBySlug(ctx, example.Slug)

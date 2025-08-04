@@ -7,7 +7,7 @@ import (
 )
 
 type URLRepository interface {
-	Save(ctx context.Context, url app.URL) (string, error)
+	Save(ctx context.Context, url app.URL) error
 	GetBySlug(ctx context.Context, slug string) (*app.URL, error)
-	DeleteExpired(ctx context.Context,) (int64, error)
+	DeleteExpired(ctx context.Context) (int64, error)
 }

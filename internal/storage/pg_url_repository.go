@@ -2,9 +2,9 @@ package storage
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 
+	"github.com/jackc/pgx"
 	"github.com/jackc/pgx/v4/pgxpool"
 
 	"url_shortener/internal/app"
@@ -18,7 +18,7 @@ func NewURLRepository(pool *pgxpool.Pool) URLRepository {
 	return &pgURLRepository{pool: pool}
 }
 
-func (p *pgURLRepository) Save(ctx context.Context, url app.URL) (string, error) {
+func (p *pgURLRepository) Save(ctx context.Context, url app.URL) error {
 	var slug string
 	err := p.pool.QueryRow(ctx, `
 		INSERT INTO urls(slug, long_url, ttl, created_at)
@@ -26,10 +26,10 @@ func (p *pgURLRepository) Save(ctx context.Context, url app.URL) (string, error)
 		RETURNING slug
 	`, url.Slug, url.LongURL, url.TTL, url.CreatedAt).Scan(&slug)
 	if err != nil {
-		return "", err
+		return err
 	}
 
-	return slug, nil
+	return nil
 }
 
 func (p *pgURLRepository) GetBySlug(ctx context.Context, slug string) (*app.URL, error) {
@@ -40,7 +40,7 @@ func (p *pgURLRepository) GetBySlug(ctx context.Context, slug string) (*app.URL,
 		WHERE slug = $1
 	`, slug).Scan(&url.ID, &url.Slug, &url.LongURL, &url.TTL, &url.CreatedAt)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 	}
@@ -51,7 +51,7 @@ func (p *pgURLRepository) GetBySlug(ctx context.Context, slug string) (*app.URL,
 func (p *pgURLRepository) DeleteExpired(ctx context.Context) (int64, error) {
 	res, err := p.pool.Exec(ctx, `
 		DELETE FROM urls
-		WHERE ttl < NOW()
+		WHERE ttl < NOW() AT TIME ZONE 'UTC'
 	`)
 	if err != nil {
 		return 0, err
