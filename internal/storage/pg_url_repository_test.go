@@ -7,13 +7,12 @@ import (
 	"os/exec"
 	"testing"
 	"time"
+	"url_shortener/internal/app"
 
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
-
-	"url_shortener/internal/app"
 )
 
 func TestURLRepository(t *testing.T) {
@@ -32,6 +31,10 @@ func TestURLRepository(t *testing.T) {
 		},
 		Started: true,
 	})
+
+	if err != nil {
+		t.Fatalf("failed to start container: %v", err)
+	}
 	defer container.Terminate(ctx)
 
 	// Получить информацию о контейнере
@@ -66,7 +69,7 @@ func TestURLRepository(t *testing.T) {
 	t.Run("Save/Get round-trip", func(t *testing.T) {
 		example := app.URL{
 			Slug:      "abc123",
-			LongURL:   "https;//examle.com",
+			LongURL:   "https;//example.com",
 			TTL:       time.Now().Add(24 * time.Hour),
 			CreatedAt: time.Now(),
 		}
@@ -78,6 +81,21 @@ func TestURLRepository(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, got)
 		require.Equal(t, example.LongURL, got.LongURL)
+	})
+
+	t.Run("Duplicate slug", func(t *testing.T) {
+		example := app.URL{
+			Slug:      "abc1234",
+			LongURL:   "https;//examle.com",
+			TTL:       time.Now().Add(24 * time.Hour),
+			CreatedAt: time.Now(),
+		}
+
+		err := repo.Save(ctx, example)
+		require.NoError(t, err) // должно сохраниться без ошибок
+
+		err = repo.Save(ctx, example)
+		require.Error(t, err) // должна быть ошибка уникальности
 	})
 
 	t.Run("DeleteExpired", func(t *testing.T) {
